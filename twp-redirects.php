@@ -3,7 +3,7 @@
 Plugin Name: TWP - Easy Redirects
 Plugin URI: https://github.com/tommasov/twp-redirects
 Description: Lightweight 301 redirect manager with wildcard (*) support. Designed to blend in seamlessly with WordPress, just like a native feature — manage your redirects from Settings → Redirects.
-Version: 1.0.2
+Version: 1.0.6
 Author: Tommaso Vietina
 Author URI: https://www.tommasovietina.it
 Text Domain: twp-redirects
@@ -41,15 +41,36 @@ add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), function ( $li
 
 /**
  * Perform the redirect if the current URL matches one of the saved rules.
+ *
+ * We hook as early as possible (on 'init') so that rules apply also to URLs
+ * that would otherwise be handled by 404s, custom rewrites, or other plugins
+ * that short-circuit 'template_redirect'.
  */
-add_action( 'template_redirect', function () {
+function twp_redirects_do_redirect() {
+	// Skip admin, AJAX, cron, REST and CLI contexts to avoid breaking the backend.
+	if ( is_admin() || ( defined( 'DOING_AJAX' ) && DOING_AJAX ) || ( defined( 'DOING_CRON' ) && DOING_CRON ) || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
+		return;
+	}
+
 	$redirects = get_option( TWP_REDIRECTS_OPTION, [] );
 	if ( empty( $redirects ) || ! is_array( $redirects ) ) {
 		return;
 	}
 
 	$current_uri = isset( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '';
-	$current_url = home_url( $current_uri );
+	if ( $current_uri === '' ) {
+		return;
+	}
+
+	// Build the current absolute URL using the actual host/scheme of the request,
+	// NOT home_url() + REQUEST_URI, which would duplicate the subdirectory path
+	// on installs located in a sub-folder (e.g. /wp-test-site/).
+	$scheme = ( ! empty( $_SERVER['HTTPS'] ) && $_SERVER['HTTPS'] !== 'off' ) ? 'https' : 'http';
+	if ( isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) && strtolower( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) === 'https' ) {
+		$scheme = 'https';
+	}
+	$host        = isset( $_SERVER['HTTP_HOST'] ) ? $_SERVER['HTTP_HOST'] : ( isset( $_SERVER['SERVER_NAME'] ) ? $_SERVER['SERVER_NAME'] : '' );
+	$current_url = $scheme . '://' . $host . $current_uri;
 
 	foreach ( $redirects as $rule ) {
 		$from_url = isset( $rule['from'] ) ? trim( $rule['from'] ) : '';
@@ -63,17 +84,23 @@ add_action( 'template_redirect', function () {
 			continue;
 		}
 
-		// If the source URL is a relative path, make it absolute for comparison.
+		// If the source URL is a relative path, make it absolute for comparison
+		// using the actual current host (avoids subdirectory duplication issues).
 		if ( strpos( $from_url, 'http' ) !== 0 ) {
-			$from_url = home_url( '/' . ltrim( $from_url, '/' ) );
+			$from_url = $scheme . '://' . $host . '/' . ltrim( $from_url, '/' );
 		}
 
 		if ( twp_redirects_is_match( $from_url, $current_url ) ) {
-			wp_redirect( $to_url, $type );
+			// Avoid infinite redirect loops when source and destination match.
+			if ( untrailingslashit( $to_url ) === untrailingslashit( $current_url ) ) {
+				return;
+			}
+			wp_redirect( esc_url_raw( $to_url ), $type );
 			exit;
 		}
 	}
-} );
+}
+add_action( 'init', 'twp_redirects_do_redirect', 1 );
 
 /**
  * Allowed redirect HTTP status codes.
@@ -108,15 +135,31 @@ function twp_redirects_type_labels() {
  * @return bool
  */
 function twp_redirects_is_match( $rule_url, $current_url ) {
-	if ( strpos( $rule_url, '*' ) === false ) {
-		return untrailingslashit( $rule_url ) === untrailingslashit( $current_url );
+	$normalize = function ( $url ) {
+		// Strip scheme and leading www. so the match is tolerant of http/https and www variants.
+		$url = preg_replace( '#^https?://#i', '', $url );
+		$url = preg_replace( '#^www\.#i', '', $url );
+
+		return untrailingslashit( $url );
+	};
+
+	$rule_norm    = $normalize( $rule_url );
+	$current_norm = $normalize( $current_url );
+
+	if ( strpos( $rule_norm, '*' ) === false ) {
+		if ( $rule_norm === $current_norm ) {
+			return true;
+		}
+		// Also match ignoring the query string of the current URL.
+		$current_no_qs = $normalize( strtok( $current_url, '?' ) );
+		return $rule_norm === $current_no_qs;
 	}
 
-	$regex = preg_quote( $rule_url, '/' );
+	$regex = preg_quote( $rule_norm, '/' );
 	$regex = str_replace( '\*', '.*', $regex );
 	$regex = '/^' . $regex . '$/i';
 
-	return (bool) preg_match( $regex, $current_url );
+	return (bool) preg_match( $regex, $current_norm );
 }
 
 /**
@@ -181,7 +224,7 @@ function twp_redirects_render_page() {
                     <th scope="col"><?php esc_html_e( 'Source URL (wildcard * supported)', 'twp-redirects' ); ?></th>
                     <th scope="col"><?php esc_html_e( 'Destination URL', 'twp-redirects' ); ?></th>
                     <th scope="col" style="width: 220px;"><?php esc_html_e( 'Type', 'twp-redirects' ); ?></th>
-                    <th scope="col" style="width: 110px; text-align: center;"><?php esc_html_e( 'Action', 'twp-redirects' ); ?></th>
+                    <th scope="col" style="width: 110px; text-align: center; white-space: nowrap;"><?php esc_html_e( 'Action', 'twp-redirects' ); ?></th>
                 </tr>
                 </thead>
                 <tbody>
@@ -192,7 +235,7 @@ function twp_redirects_render_page() {
 					if ( ! isset( $type_labels[ $selected ] ) ) {
 						$selected = 301;
 					}
-					echo '<select name="redirect_type[]" class="regular-text">';
+					echo '<select name="redirect_type[]" style="width:100%; max-width:100%; box-sizing:border-box;">';
 					foreach ( $type_labels as $code => $label ) {
 						echo '<option value="' . esc_attr( $code ) . '" ' . selected( $selected, $code, false ) . '>' . esc_html( $label ) . '</option>';
 					}
