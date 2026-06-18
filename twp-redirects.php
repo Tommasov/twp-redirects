@@ -3,7 +3,7 @@
 Plugin Name: TWP - Easy Redirects
 Plugin URI: https://github.com/tommasov/twp-redirects
 Description: Lightweight 301 redirect manager with wildcard (*) support. Designed to blend in seamlessly with WordPress, just like a native feature — manage your redirects from Settings → Redirects.
-Version: 1.0.1
+Version: 1.0.2
 Author: Tommaso Vietina
 Author URI: https://www.tommasovietina.it
 Text Domain: twp-redirects
