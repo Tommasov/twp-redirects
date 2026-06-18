@@ -181,7 +181,7 @@ function twp_redirects_render_page() {
                     <th scope="col"><?php esc_html_e( 'Source URL (wildcard * supported)', 'twp-redirects' ); ?></th>
                     <th scope="col"><?php esc_html_e( 'Destination URL', 'twp-redirects' ); ?></th>
                     <th scope="col" style="width: 220px;"><?php esc_html_e( 'Type', 'twp-redirects' ); ?></th>
-                    <th scope="col" style="width: 90px; text-align: center;"><?php esc_html_e( 'Action', 'twp-redirects' ); ?></th>
+                    <th scope="col" style="width: 110px; text-align: center;"><?php esc_html_e( 'Action', 'twp-redirects' ); ?></th>
                 </tr>
                 </thead>
                 <tbody>
@@ -218,6 +218,16 @@ function twp_redirects_render_page() {
 				<?php endif; ?>
                 </tbody>
             </table>
+
+            <div class="twp-redirects-types-help" style="margin-top: 12px;">
+                <h2 style="font-size: 14px; margin-bottom: 6px;"><?php esc_html_e( 'Redirect types', 'twp-redirects' ); ?></h2>
+                <ul style="margin-left: 18px; list-style: disc;">
+                    <li><strong>301 - <?php esc_html_e( 'Moved Permanently', 'twp-redirects' ); ?>:</strong> <?php esc_html_e( 'Permanent redirect. Search engines transfer ranking to the new URL and browsers cache it aggressively. Use it when a page has moved for good.', 'twp-redirects' ); ?></li>
+                    <li><strong>302 - <?php esc_html_e( 'Found (Temporary)', 'twp-redirects' ); ?>:</strong> <?php esc_html_e( 'Temporary redirect. The original URL is expected to come back, so search engines keep indexing the source. Browsers may switch the request method.', 'twp-redirects' ); ?></li>
+                    <li><strong>307 - <?php esc_html_e( 'Temporary Redirect', 'twp-redirects' ); ?>:</strong> <?php esc_html_e( 'Like 302, but the HTTP method and body are preserved. Recommended for temporary moves of non-GET requests.', 'twp-redirects' ); ?></li>
+                    <li><strong>308 - <?php esc_html_e( 'Permanent Redirect', 'twp-redirects' ); ?>:</strong> <?php esc_html_e( 'Like 301, but the HTTP method and body are preserved. Use it for permanent moves where the request method must not change.', 'twp-redirects' ); ?></li>
+                </ul>
+            </div>
 
             <p class="submit" style="display:flex; gap:8px;">
                 <button type="button" class="button" id="twp-add-redirect-row"><?php esc_html_e( 'Add row', 'twp-redirects' ); ?></button>
