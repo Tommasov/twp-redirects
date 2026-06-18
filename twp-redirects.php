@@ -3,7 +3,7 @@
 Plugin Name: TWP - Easy Redirects
 Plugin URI: https://github.com/tommasov/twp-redirects
 Description: Lightweight 301 redirect manager with wildcard (*) support. Designed to blend in seamlessly with WordPress, just like a native feature — manage your redirects from Settings → Redirects.
-Version: 1.0.0
+Version: 1.0.1
 Author: Tommaso Vietina
 Author URI: https://www.tommasovietina.it
 Text Domain: twp-redirects
@@ -54,6 +54,10 @@ add_action( 'template_redirect', function () {
 	foreach ( $redirects as $rule ) {
 		$from_url = isset( $rule['from'] ) ? trim( $rule['from'] ) : '';
 		$to_url   = isset( $rule['to'] ) ? trim( $rule['to'] ) : '';
+		$type     = isset( $rule['type'] ) ? (int) $rule['type'] : 301;
+		if ( ! in_array( $type, twp_redirects_allowed_types(), true ) ) {
+			$type = 301;
+		}
 
 		if ( $from_url === '' || $to_url === '' ) {
 			continue;
@@ -65,11 +69,34 @@ add_action( 'template_redirect', function () {
 		}
 
 		if ( twp_redirects_is_match( $from_url, $current_url ) ) {
-			wp_redirect( $to_url, 301 );
+			wp_redirect( $to_url, $type );
 			exit;
 		}
 	}
 } );
+
+/**
+ * Allowed redirect HTTP status codes.
+ *
+ * @return int[]
+ */
+function twp_redirects_allowed_types() {
+	return array( 301, 302, 307, 308 );
+}
+
+/**
+ * Human-readable labels for each redirect type.
+ *
+ * @return array<int,string>
+ */
+function twp_redirects_type_labels() {
+	return array(
+		301 => __( '301 - Moved Permanently', 'twp-redirects' ),
+		302 => __( '302 - Found (Temporary)', 'twp-redirects' ),
+		307 => __( '307 - Temporary Redirect', 'twp-redirects' ),
+		308 => __( '308 - Permanent Redirect', 'twp-redirects' ),
+	);
+}
 
 /**
  * Check whether the current URL matches the redirect rule.
@@ -102,18 +129,25 @@ function twp_redirects_render_page() {
 
 	// Save data.
 	if ( isset( $_POST['twp_redirects_save'] ) && check_admin_referer( 'twp_redirects_save_action', 'twp_redirects_nonce' ) ) {
-		$from_urls = isset( $_POST['redirect_from'] ) ? array_map( 'sanitize_text_field', wp_unslash( (array) $_POST['redirect_from'] ) ) : [];
-		$to_urls   = isset( $_POST['redirect_to'] ) ? array_map( 'sanitize_text_field', wp_unslash( (array) $_POST['redirect_to'] ) ) : [];
+		$from_urls  = isset( $_POST['redirect_from'] ) ? array_map( 'sanitize_text_field', wp_unslash( (array) $_POST['redirect_from'] ) ) : [];
+		$to_urls    = isset( $_POST['redirect_to'] ) ? array_map( 'sanitize_text_field', wp_unslash( (array) $_POST['redirect_to'] ) ) : [];
+		$type_codes = isset( $_POST['redirect_type'] ) ? array_map( 'intval', (array) $_POST['redirect_type'] ) : [];
 
-		$redirects = [];
-		$count     = count( $from_urls );
+		$allowed_types = twp_redirects_allowed_types();
+		$redirects     = [];
+		$count         = count( $from_urls );
 		for ( $i = 0; $i < $count; $i ++ ) {
 			$from = isset( $from_urls[ $i ] ) ? trim( $from_urls[ $i ] ) : '';
 			$to   = isset( $to_urls[ $i ] ) ? trim( $to_urls[ $i ] ) : '';
+			$type = isset( $type_codes[ $i ] ) ? (int) $type_codes[ $i ] : 301;
+			if ( ! in_array( $type, $allowed_types, true ) ) {
+				$type = 301;
+			}
 			if ( $from !== '' && $to !== '' ) {
 				$redirects[] = [
 					'from' => $from,
 					'to'   => $to,
+					'type' => $type,
 				];
 			}
 		}
@@ -146,23 +180,40 @@ function twp_redirects_render_page() {
                 <tr>
                     <th scope="col"><?php esc_html_e( 'Source URL (wildcard * supported)', 'twp-redirects' ); ?></th>
                     <th scope="col"><?php esc_html_e( 'Destination URL', 'twp-redirects' ); ?></th>
-                    <th scope="col" style="width: 60px;"><?php esc_html_e( 'Action', 'twp-redirects' ); ?></th>
+                    <th scope="col" style="width: 220px;"><?php esc_html_e( 'Type', 'twp-redirects' ); ?></th>
+                    <th scope="col" style="width: 90px; text-align: center;"><?php esc_html_e( 'Action', 'twp-redirects' ); ?></th>
                 </tr>
                 </thead>
                 <tbody>
+				<?php
+				$type_labels = twp_redirects_type_labels();
+				$render_type_select = function ( $selected ) use ( $type_labels ) {
+					$selected = (int) $selected;
+					if ( ! isset( $type_labels[ $selected ] ) ) {
+						$selected = 301;
+					}
+					echo '<select name="redirect_type[]" class="regular-text">';
+					foreach ( $type_labels as $code => $label ) {
+						echo '<option value="' . esc_attr( $code ) . '" ' . selected( $selected, $code, false ) . '>' . esc_html( $label ) . '</option>';
+					}
+					echo '</select>';
+				};
+				?>
 				<?php if ( ! empty( $redirects ) ) : ?>
 					<?php foreach ( $redirects as $rule ) : ?>
                         <tr>
                             <td><input type="text" name="redirect_from[]" value="<?php echo esc_attr( $rule['from'] ); ?>" class="large-text code" placeholder="https://example.com/old-page/*" /></td>
                             <td><input type="text" name="redirect_to[]" value="<?php echo esc_attr( $rule['to'] ); ?>" class="large-text code" placeholder="https://example.com/new-page/" /></td>
-                            <td><button type="button" class="button button-link-delete remove-row"><?php esc_html_e( 'Remove', 'twp-redirects' ); ?></button></td>
+                            <td><?php $render_type_select( isset( $rule['type'] ) ? $rule['type'] : 301 ); ?></td>
+                            <td style="text-align: center;"><button type="button" class="button button-link-delete remove-row"><?php esc_html_e( 'Remove', 'twp-redirects' ); ?></button></td>
                         </tr>
 					<?php endforeach; ?>
 				<?php else : ?>
                     <tr>
                         <td><input type="text" name="redirect_from[]" value="" class="large-text code" placeholder="https://example.com/old-page" /></td>
                         <td><input type="text" name="redirect_to[]" value="" class="large-text code" placeholder="https://example.com/new-page" /></td>
-                        <td><button type="button" class="button button-link-delete remove-row"><?php esc_html_e( 'Remove', 'twp-redirects' ); ?></button></td>
+                        <td><?php $render_type_select( 301 ); ?></td>
+                        <td style="text-align: center;"><button type="button" class="button button-link-delete remove-row"><?php esc_html_e( 'Remove', 'twp-redirects' ); ?></button></td>
                     </tr>
 				<?php endif; ?>
                 </tbody>
@@ -184,6 +235,7 @@ function twp_redirects_render_page() {
                     return;
                 }
                 $row.find('input').val('');
+                $row.find('select').val('301');
                 $tbody.append($row);
             });
 
